@@ -149,19 +149,25 @@ generate_link() {
 run_daemon() {
     local cmd
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
-        cmd=("$HY2_BIN" "server" "-c" "$SERVER_CONFIG" "-log" "$LOG_FILE")
+        cmd=("$HY2_BIN" "server" "-c" "$SERVER_CONFIG")
+        # 使用 stdout/stderr 重定向日志
+        while true; do
+            echo "🚀 启动 $SELECTED_SERVICE 服务..."
+            "${cmd[@]}" >> "$LOG_FILE" 2>&1
+            echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
+            sleep 5
+        done
     else
         cmd=("$TUIC_BIN" "-c" "$SERVER_TOML")
+        while true; do
+            echo "🚀 启动 $SELECTED_SERVICE 服务..."
+            "${cmd[@]}" >> "$LOG_FILE" 2>&1
+            echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
+            sleep 5
+        done
     fi
-
-    # 前台循环守护
-    while true; do
-        echo "🚀 启动 $SELECTED_SERVICE 服务..."
-        "${cmd[@]}"
-        echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..."
-        sleep 5
-    done
 }
+
 
 # ===================== 获取公网 IP =====================
 get_server_ip() {
