@@ -2,13 +2,13 @@ version: "3.9"
 
 services:
   proxy:
-    image: your-image-name:latest
-    container_name: proxy_server
-    restart: always
+    image: 999k923/docker-proxy:latest
+    container_name: proxy-server
+    restart: unless-stopped
     environment:
-      # 选择服务类型: 1=hy2, 2=tuic
-      SERVICE_TYPE: 1
+      SERVICE_TYPE: 1  # 1: hy2, 2: tuic
     ports:
+      - "28888:28888/tcp"
       - "28888:28888/udp"
     volumes:
-      - ./proxy_files:/app/proxy_files
+      - ./proxy_files:/proxy_files  # 可选：挂载配置/证书持久化
