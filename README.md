@@ -31,3 +31,5 @@ services:
 volumes:
   proxy_data:
 ```
+
+### 挂载目录下有一个hy2_link.txt文件，节点信息就在这里面查看。
