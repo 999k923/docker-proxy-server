@@ -3,8 +3,8 @@ name: Docker Build & Push
 on:
   push:
     branches:
-      - main   # 你希望触发构建的分支
-  workflow_dispatch:  # 手动触发
+      - main
+  workflow_dispatch:
 
 jobs:
   build-and-push:
@@ -30,3 +30,5 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/docker-proxy:latest
+          build-args: |
+            SERVICE_TYPE=1   # 1: hy2, 2: tuic
