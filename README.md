@@ -38,13 +38,13 @@ volumes:
 version: "3.9"
 services:
   proxy:
-    build: .
+    image: 999k923/docker-proxy:latest
     container_name: proxy_server
     restart: always
     environment:
-      SERVICE_TYPE: 3  # 1=hy2, 2=tuic, 3=argo
-      ARGO_TOKEN: ""   # 运行 Argo 时填写
-      ARGO_DOMAIN: ""  # 运行 Argo 时填写
+      SERVICE_TYPE: 1  # 1=hy2, 2=tuic, 3=argo
+      ARGO_TOKEN: ""   # Argo 时填写
+      ARGO_DOMAIN: ""  # Argo 时填写
       ARGO_PORT: 28888
     ports:
       - "28888:28888/udp"
