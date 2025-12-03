@@ -41,6 +41,7 @@ if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
     KEY_PEM="$WORK_DIR/k.pem"
     AUTH_PASSWORD=""
     HY2_BIN="$WORK_DIR/hysteria-server"
+    LOG_FILE="$WORK_DIR/hy2.log"
 elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
     SERVER_TOML="$WORK_DIR/server.toml"
     CERT_PEM="$WORK_DIR/tuic-cert.pem"
@@ -48,6 +49,7 @@ elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
     TUIC_BIN="$WORK_DIR/tuic-server"
     TUIC_UUID=""
     TUIC_PASSWORD=""
+    LOG_FILE="$WORK_DIR/tuic.log"
 fi
 
 # ===================== 加载现有配置 =====================
@@ -73,7 +75,8 @@ generate_certificate() {
         echo "🔐 生成自签证书..."
         openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
             -keyout "$KEY_PEM" -out "$CERT_PEM" -subj "/CN=$MASQ_DOMAIN" -days "$cert_days" -nodes >/dev/null 2>&1
-        chmod 600 "$KEY_PEM" 644 "$CERT_PEM"
+        chmod 600 "$KEY_PEM"
+        chmod 644 "$CERT_PEM"
         echo "✅ 证书生成完成"
     fi
 }
@@ -138,10 +141,12 @@ run_daemon() {
         cmd=("$TUIC_BIN" "-c" "$SERVER_TOML")
     fi
 
-    # 前台循环守护
+    echo "📄 日志文件: $LOG_FILE"
+
+    # 前台循环守护，同时输出到日志和 stdout
     while true; do
         echo "🚀 启动 $SELECTED_SERVICE 服务..."
-        "${cmd[@]}"
+        "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
         echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..."
         sleep 5
     done
