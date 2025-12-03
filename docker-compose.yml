@@ -1,13 +1,10 @@
-version: "3.9"
 services:
   proxy:
     image: 999k923/docker-proxy:latest
     container_name: proxy_server
     restart: always
+    network_mode: host        # host 网络模式保证 UDP/IPv6 正常
     environment:
-      # 选择服务类型: 1=hy2, 2=tuic
-      SERVICE_TYPE: 1
-    ports:
-      - 28888:28888/udp
+      SERVICE_TYPE: 1         # 1=hy2, 2=tuic
     volumes:
-      - ./proxy_files:/app/proxy_files
+      - /opt/stacks/proxy_server/data:/proxy_files
