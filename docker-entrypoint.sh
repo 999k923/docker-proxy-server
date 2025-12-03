@@ -24,7 +24,7 @@ elif [[ "$SERVICE_TYPE" == "2" ]]; then
     LINK_FILE="$WORK_DIR/tuic_link.txt"
 elif [[ "$SERVICE_TYPE" == "3" ]]; then
     SELECTED_SERVICE="argo"
-    LINK_FILE="$WORK_DIR/argo_link.txt"
+    LINK_FILE="$WORK_DIR/vmess_link.txt"
 else
     echo "❌ 无效 SERVICE_TYPE: $SERVICE_TYPE"
     exit 1
@@ -52,10 +52,10 @@ elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
     TUIC_PASSWORD=""
     LOG_FILE="$WORK_DIR/tuic.log"
 elif [[ "$SELECTED_SERVICE" == "argo" ]]; then
-    # Argo Tunnel 配置
+    # Argo Tunnel / VMess 配置
     ARGO_TOKEN="${ARGO_TOKEN:-}"
-    ARGO_PORT="${ARGO_PORT:-28888}"
     ARGO_DOMAIN="${ARGO_DOMAIN:-example.com}"
+    ARGO_PORT="${ARGO_PORT:-28888}"   # 容器内本地端口
     LOG_FILE="$WORK_DIR/argo.log"
 fi
 
@@ -142,9 +142,39 @@ generate_link() {
     elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
         echo "tuic://$TUIC_UUID:$TUIC_PASSWORD@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3#TUIC-HIGH-PERF" > "$LINK_FILE"
     elif [[ "$SELECTED_SERVICE" == "argo" ]]; then
-        echo "argo://$ARGO_TOKEN@$ARGO_DOMAIN:$ARGO_PORT#ARGO-TUNNEL" > "$LINK_FILE"
+        # ---------------- VMess Argo 节点生成 ----------------
+        VMESS_ADDR="www.visa.com.sg"
+        VMESS_PORT=443
+        VMESS_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
+        VMESS_AID=0
+        VMESS_NET="tcp"
+        VMESS_TYPE="none"
+        VMESS_HOST="$ARGO_DOMAIN"
+        VMESS_PATH="vm"
+        VMESS_TLS="tls"
+        VMESS_SNI="$ARGO_DOMAIN"
+
+        VMESS_JSON=$(cat <<EOF
+{
+  "v":"2",
+  "ps":"vm-argo-$VMESS_UUID",
+  "add":"$VMESS_ADDR",
+  "port":"$VMESS_PORT",
+  "id":"$VMESS_UUID",
+  "aid":"$VMESS_AID",
+  "scy":"auto",
+  "net":"$VMESS_NET",
+  "type":"$VMESS_TYPE",
+  "host":"$VMESS_HOST",
+  "path":"$VMESS_PATH",
+  "tls":"$VMESS_TLS",
+  "sni":"$VMESS_SNI"
+}
+EOF
+)
+        echo "vmess://$(echo -n "$VMESS_JSON" | base64 -w0)" > "$LINK_FILE"
+        echo "📱 VMess Argo 节点生成完成: $LINK_FILE"
     fi
-    echo "📱 链接生成: $LINK_FILE"
 }
 
 # ---------------- 守护进程 ----------------
@@ -188,7 +218,7 @@ main() {
         echo "🎉 $SELECTED_SERVICE 服务启动完成: $server_ip:$SERVICE_PORT"
     else
         generate_link "argo"
-        echo "🎉 ARGO Tunnel 服务启动完成: $ARGO_DOMAIN:$ARGO_PORT"
+        echo "🎉 ARGO Tunnel VMess 节点生成完成: $ARGO_DOMAIN:$ARGO_PORT"
     fi
 
     echo "📄 日志文件: $LOG_FILE"
