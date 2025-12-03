@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  proxy:
+    image: your-image-name:latest
+    container_name: proxy_server
+    restart: always
+    environment:
+      # 选择服务类型: 1=hy2, 2=tuic
+      SERVICE_TYPE: 1
+    ports:
+      - "28888:28888/udp"
+    volumes:
+      - ./proxy_files:/app/proxy_files
