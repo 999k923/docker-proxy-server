@@ -1,12 +1,25 @@
+# 基础镜像
 FROM ubuntu:22.04
 
-RUN apt update && apt install -y curl openssl uuid-runtime
+# 安装必要依赖
+RUN apt-get update && \
+    apt-get install -y curl openssl wget ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# 创建工作目录
+WORKDIR /proxy_files
 
-ENV SERVICE_TYPE=1  # 1: hy2, 2: tuic
+# 复制启动脚本
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
+# 构建参数
+ARG SERVICE_TYPE=1
+ENV SERVICE_TYPE=${SERVICE_TYPE}
+
+# 暴露端口（固定 28888）
 EXPOSE 28888/udp
+EXPOSE 28888/tcp
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+# 容器入口
+ENTRYPOINT ["/docker-entrypoint.sh"]
