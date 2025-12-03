@@ -102,8 +102,21 @@ generate_config() {
         cat > "$SERVER_CONFIG" <<EOF
 {
   "listen": ":$SERVICE_PORT",
-  "tls": {"cert": "$CERT_PEM","key": "$KEY_PEM","alpn":["h3"]},
-  "auth":{"type":"password","password":"$AUTH_PASSWORD"}
+  "tls": {
+    "cert": "$CERT_PEM",
+    "key": "$KEY_PEM",
+    "alpn": ["h3"]
+  },
+  "auth": {
+    "type": "password",
+    "password": "$AUTH_PASSWORD"
+  },
+  "quic": {
+    "maxUdpPayloadSize": 1200,
+    "initConnReceiveWindow": 8388608,
+    "initStreamReceiveWindow": 8388608,
+    "maxIdleTimeout": "30s"
+  }
 }
 EOF
     else
@@ -136,17 +149,15 @@ generate_link() {
 run_daemon() {
     local cmd
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
-        cmd=("$HY2_BIN" "server" "-c" "$SERVER_CONFIG")
+        cmd=("$HY2_BIN" "server" "-c" "$SERVER_CONFIG" "-log" "$LOG_FILE")
     else
         cmd=("$TUIC_BIN" "-c" "$SERVER_TOML")
     fi
 
-    echo "📄 日志文件: $LOG_FILE"
-
-    # 前台循环守护，同时输出到日志和 stdout
+    # 前台循环守护
     while true; do
         echo "🚀 启动 $SELECTED_SERVICE 服务..."
-        "${cmd[@]}" 2>&1 | tee -a "$LOG_FILE"
+        "${cmd[@]}"
         echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..."
         sleep 5
     done
@@ -154,7 +165,7 @@ run_daemon() {
 
 # ===================== 获取公网 IP =====================
 get_server_ip() {
-    curl -s https://api.ipify.org || echo "YOUR_SERVER_IP"
+    curl -s https://api64.ipify.org || echo "YOUR_SERVER_IP"
 }
 
 # ===================== 主函数 =====================
@@ -170,6 +181,7 @@ main() {
 
     echo "🎉 $SELECTED_SERVICE 服务启动完成: $server_ip:$SERVICE_PORT"
     echo "🎯 SNI/伪装域名: $MASQ_DOMAIN"
+    echo "📄 日志文件: $LOG_FILE"
 
     run_daemon  # 前台运行，保持容器不退出
 }
