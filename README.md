@@ -33,3 +33,22 @@ volumes:
 ```
 
 ### 挂载目录下有一个hy2_link.txt文件，节点信息就在这里面查看。
+
+```bash
+version: "3.9"
+services:
+  proxy:
+    build: .
+    container_name: proxy_server
+    restart: always
+    environment:
+      SERVICE_TYPE: 3  # 1=hy2, 2=tuic, 3=argo
+      ARGO_TOKEN: ""   # 运行 Argo 时填写
+      ARGO_DOMAIN: ""  # 运行 Argo 时填写
+      ARGO_PORT: 28888
+    ports:
+      - "28888:28888/udp"
+      - "28888:28888/tcp"
+    volumes:
+      - /opt/stacks/proxy_server/proxy_files/:/proxy_files
+```
