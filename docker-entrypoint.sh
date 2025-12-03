@@ -2,13 +2,11 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# ===================== 工作目录 =====================
 WORK_DIR="proxy_files"
 mkdir -p "$WORK_DIR"
 echo "📁 工作目录: $WORK_DIR"
 
-# ===================== 环境变量 =====================
-SERVICE_TYPE="${SERVICE_TYPE:-1}"  # 1: hy2, 2: tuic
+SERVICE_TYPE="${SERVICE_TYPE:-1}"  # 1=hy2, 2=tuic, 3=argo
 MASQ_DOMAINS=(
     "www.microsoft.com" "www.cloudflare.com" "www.bing.com"
     "www.apple.com" "www.amazon.com" "www.wikipedia.org"
@@ -17,13 +15,16 @@ MASQ_DOMAINS=(
 )
 MASQ_DOMAIN=${MASQ_DOMAINS[$RANDOM % ${#MASQ_DOMAINS[@]}]}
 
-# ===================== 服务选择 =====================
+# ---------------- 服务选择 ----------------
 if [[ "$SERVICE_TYPE" == "1" ]]; then
     SELECTED_SERVICE="hy2"
     LINK_FILE="$WORK_DIR/hy2_link.txt"
 elif [[ "$SERVICE_TYPE" == "2" ]]; then
     SELECTED_SERVICE="tuic"
     LINK_FILE="$WORK_DIR/tuic_link.txt"
+elif [[ "$SERVICE_TYPE" == "3" ]]; then
+    SELECTED_SERVICE="argo"
+    LINK_FILE="$WORK_DIR/argo_link.txt"
 else
     echo "❌ 无效 SERVICE_TYPE: $SERVICE_TYPE"
     exit 1
@@ -32,7 +33,7 @@ touch "$LINK_FILE"
 echo "✅ 选择服务: $SELECTED_SERVICE"
 echo "🎯 随机选择SNI伪装域名: $MASQ_DOMAIN"
 
-# ===================== 服务变量 =====================
+# ---------------- 服务变量 ----------------
 SERVICE_PORT=28888
 if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
     HY2_VERSION="app%2Fv2.6.3"
@@ -50,9 +51,15 @@ elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
     TUIC_UUID=""
     TUIC_PASSWORD=""
     LOG_FILE="$WORK_DIR/tuic.log"
+elif [[ "$SELECTED_SERVICE" == "argo" ]]; then
+    # Argo Tunnel 配置
+    ARGO_TOKEN="${ARGO_TOKEN:-}"
+    ARGO_PORT="${ARGO_PORT:-28888}"
+    ARGO_DOMAIN="${ARGO_DOMAIN:-example.com}"
+    LOG_FILE="$WORK_DIR/argo.log"
 fi
 
-# ===================== 加载现有配置 =====================
+# ---------------- 加载现有配置 ----------------
 load_existing_config() {
     if [[ "$SELECTED_SERVICE" == "hy2" && -f "$SERVER_CONFIG" ]]; then
         AUTH_PASSWORD=$(grep '"password":' "$SERVER_CONFIG" | sed -E 's/.*"password":\s*"([^"]+)".*/\1/')
@@ -67,21 +74,23 @@ load_existing_config() {
     return 1
 }
 
-# ===================== 证书生成 =====================
+# ---------------- 证书生成 ----------------
 generate_certificate() {
-    if [[ ! -f "$CERT_PEM" || ! -f "$KEY_PEM" ]] || ! openssl x509 -checkend 0 -noout -in "$CERT_PEM" 2>/dev/null; then
-        local cert_days=90
-        [[ "$SELECTED_SERVICE" == "tuic" ]] && cert_days=365
-        echo "🔐 生成自签证书..."
-        openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
-            -keyout "$KEY_PEM" -out "$CERT_PEM" -subj "/CN=$MASQ_DOMAIN" -days "$cert_days" -nodes >/dev/null 2>&1
-        chmod 600 "$KEY_PEM"
-        chmod 644 "$CERT_PEM"
-        echo "✅ 证书生成完成"
+    if [[ "$SELECTED_SERVICE" == "hy2" || "$SELECTED_SERVICE" == "tuic" ]]; then
+        if [[ ! -f "$CERT_PEM" || ! -f "$KEY_PEM" ]] || ! openssl x509 -checkend 0 -noout -in "$CERT_PEM" 2>/dev/null; then
+            local cert_days=90
+            [[ "$SELECTED_SERVICE" == "tuic" ]] && cert_days=365
+            echo "🔐 生成自签证书..."
+            openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+                -keyout "$KEY_PEM" -out "$CERT_PEM" -subj "/CN=$MASQ_DOMAIN" -days "$cert_days" -nodes >/dev/null 2>&1
+            chmod 600 "$KEY_PEM"
+            chmod 644 "$CERT_PEM"
+            echo "✅ 证书生成完成"
+        fi
     fi
 }
 
-# ===================== 二进制下载 =====================
+# ---------------- 下载二进制 ----------------
 check_binary() {
     if [[ "$SELECTED_SERVICE" == "hy2" && ! -x "$HY2_BIN" ]]; then
         echo "📥 下载 hysteria-server..."
@@ -92,34 +101,25 @@ check_binary() {
         TUIC_URL="https://github.com/Itsusinn/tuic/releases/download/v1.3.5/tuic-server-x86_64-linux"
         curl -L -f -o "$TUIC_BIN" "$TUIC_URL"
         chmod +x "$TUIC_BIN"
+    elif [[ "$SELECTED_SERVICE" == "argo" ]]; then
+        echo "📥 安装 cloudflared..."
+        curl -L -o "$WORK_DIR/cloudflared" "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64"
+        chmod +x "$WORK_DIR/cloudflared"
     fi
 }
 
-# ===================== 配置生成 =====================
+# ---------------- 生成服务配置 ----------------
 generate_config() {
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         [[ -z "$AUTH_PASSWORD" ]] && AUTH_PASSWORD=$(openssl rand -hex 16)
         cat > "$SERVER_CONFIG" <<EOF
 {
   "listen": ":$SERVICE_PORT",
-  "tls": {
-    "cert": "$CERT_PEM",
-    "key": "$KEY_PEM",
-    "alpn": ["h3"]
-  },
-  "auth": {
-    "type": "password",
-    "password": "$AUTH_PASSWORD"
-  },
-  "quic": {
-    "maxUdpPayloadSize": 1200,
-    "initConnReceiveWindow": 8388608,
-    "initStreamReceiveWindow": 8388608,
-    "maxIdleTimeout": "30s"
-  }
+  "tls": {"cert": "$CERT_PEM","key": "$KEY_PEM","alpn":["h3"]},
+  "auth":{"type":"password","password":"$AUTH_PASSWORD"}
 }
 EOF
-    else
+    elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
         [[ -z "$TUIC_UUID" ]] && TUIC_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
         [[ -z "$TUIC_PASSWORD" ]] && TUIC_PASSWORD=$(openssl rand -hex 16)
         cat > "$SERVER_TOML" <<EOF
@@ -134,62 +134,65 @@ EOF
     fi
 }
 
-# ===================== 链接生成 =====================
+# ---------------- 生成客户端链接 ----------------
 generate_link() {
     local ip="$1"
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         echo "hysteria2://$AUTH_PASSWORD@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3&insecure=1#Hy2-JSON" > "$LINK_FILE"
-    else
+    elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
         echo "tuic://$TUIC_UUID:$TUIC_PASSWORD@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3#TUIC-HIGH-PERF" > "$LINK_FILE"
+    elif [[ "$SELECTED_SERVICE" == "argo" ]]; then
+        echo "argo://$ARGO_TOKEN@$ARGO_DOMAIN:$ARGO_PORT#ARGO-TUNNEL" > "$LINK_FILE"
     fi
     echo "📱 链接生成: $LINK_FILE"
 }
 
-# ===================== 守护进程 =====================
+# ---------------- 守护进程 ----------------
 run_daemon() {
-    local cmd
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         cmd=("$HY2_BIN" "server" "-c" "$SERVER_CONFIG")
-        # 使用 stdout/stderr 重定向日志
-        while true; do
-            echo "🚀 启动 $SELECTED_SERVICE 服务..."
-            "${cmd[@]}" >> "$LOG_FILE" 2>&1
-            echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
-            sleep 5
-        done
-    else
+    elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
         cmd=("$TUIC_BIN" "-c" "$SERVER_TOML")
-        while true; do
-            echo "🚀 启动 $SELECTED_SERVICE 服务..."
-            "${cmd[@]}" >> "$LOG_FILE" 2>&1
-            echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
-            sleep 5
-        done
+    elif [[ "$SELECTED_SERVICE" == "argo" ]]; then
+        cmd=("$WORK_DIR/cloudflared" "tunnel" "--no-autoupdate" "--token" "$ARGO_TOKEN" "--url" "localhost:$ARGO_PORT")
     fi
+
+    while true; do
+        echo "🚀 启动 $SELECTED_SERVICE 服务..." >> "$LOG_FILE" 2>&1
+        "${cmd[@]}" >> "$LOG_FILE" 2>&1
+        echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
+        sleep 5
+    done
 }
 
-
-# ===================== 获取公网 IP =====================
+# ---------------- 获取公网 IP ----------------
 get_server_ip() {
     curl -s https://api64.ipify.org || echo "YOUR_SERVER_IP"
 }
 
-# ===================== 主函数 =====================
+# ---------------- 主函数 ----------------
 main() {
-    load_existing_config || echo "⚙️ 初始化新配置..."
+    if load_existing_config; then
+        echo "📂 已加载现有配置"
+    else
+        echo "⚙️ 初始化新配置..."
+    fi
+
     generate_certificate
     check_binary
     generate_config
 
-    local server_ip
-    server_ip=$(get_server_ip)
-    generate_link "$server_ip"
+    if [[ "$SELECTED_SERVICE" != "argo" ]]; then
+        server_ip=$(get_server_ip)
+        generate_link "$server_ip"
+        echo "🎉 $SELECTED_SERVICE 服务启动完成: $server_ip:$SERVICE_PORT"
+    else
+        generate_link "argo"
+        echo "🎉 ARGO Tunnel 服务启动完成: $ARGO_DOMAIN:$ARGO_PORT"
+    fi
 
-    echo "🎉 $SELECTED_SERVICE 服务启动完成: $server_ip:$SERVICE_PORT"
-    echo "🎯 SNI/伪装域名: $MASQ_DOMAIN"
     echo "📄 日志文件: $LOG_FILE"
-
-    run_daemon  # 前台运行，保持容器不退出
+    run_daemon
 }
 
 main "$@"
