@@ -33,7 +33,8 @@ echo "✅ 选择服务: $SELECTED_SERVICE"
 echo "🎯 随机选择SNI伪装域名: $MASQ_DOMAIN"
 
 # ===================== 服务变量 =====================
-SERVICE_PORT=28888
+# 使用环境变量自定义端口，如果没设置就默认 28888
+SERVICE_PORT="${SERVICE_PORT:-28888}"
 if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
     HY2_VERSION="app%2Fv2.6.3"
     SERVER_CONFIG="$WORK_DIR/server.json"
@@ -137,6 +138,11 @@ EOF
 # ===================== 链接生成 =====================
 generate_link() {
     local ip="$1"
+    # IPv6 地址加方括号
+    if [[ "$ip" =~ ":" ]]; then
+        ip="[$ip]"
+    fi
+
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         echo "hysteria2://$AUTH_PASSWORD@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3&insecure=1#Hy2-JSON" > "$LINK_FILE"
     else
