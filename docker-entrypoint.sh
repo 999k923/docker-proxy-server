@@ -222,30 +222,33 @@ run_daemon() {
 
     echo "🚀 启动 cloudflared..."
     if [[ -n "$ARGO_TOKEN" && -n "$ARGO_DOMAIN" ]]; then
+        # 使用 Token + 自定义域名
         TUNNEL_NAME="vmess-argo-$(cat /proc/sys/kernel/random/uuid | tr -d '-')"
         CLOUDFLARED_CONFIG="$WORK_DIR/argo-tunnel.yml"
 
-        # 生成 tunnel 配置
+        # 生成 tunnel 配置文件
         cat > "$CLOUDFLARED_CONFIG" <<EOF
 tunnel: $TUNNEL_NAME
 credentials-file: $WORK_DIR/$TUNNEL_NAME.json
 log-level: info
+protocol: wss
 ingress:
   - hostname: ${ARGO_DOMAIN}
     service: http://127.0.0.1:${ARGO_PORT}
   - service: http_status:404
 EOF
 
-        # 使用 Token 创建隧道（失败不退出）
+        # 创建 tunnel（生成 credentials 文件），忽略已存在错误
         "$CLOUDFLARED_BIN" tunnel --config "$CLOUDFLARED_CONFIG" create "$TUNNEL_NAME" --token "$ARGO_TOKEN" || true
 
-        # 使用 WSS/TCP 运行隧道，避免 QUIC/UDP 问题
-        nohup "$CLOUDFLARED_BIN" tunnel --config "$CLOUDFLARED_CONFIG" run --protocol wss "$TUNNEL_NAME" >> "$WORK_DIR/argo.log" 2>&1 &
+        # 运行隧道
+        nohup "$CLOUDFLARED_BIN" tunnel --config "$CLOUDFLARED_CONFIG" run "$TUNNEL_NAME" >> "$WORK_DIR/argo.log" 2>&1 &
     else
-        # 临时隧道，走 WSS/TCP
+        # 临时隧道，强制使用 WSS
         nohup "$CLOUDFLARED_BIN" tunnel --url "http://127.0.0.1:${ARGO_PORT}" --protocol wss >> "$WORK_DIR/argo.log" 2>&1 &
     fi
 fi
+
 }
 
 
