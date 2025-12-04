@@ -98,7 +98,7 @@ check_binary() {
     fi
 }
 
-# ===================== TUIC 配置生成 =====================
+# ===================== 配置生成 =====================
 generate_config() {
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         [[ -z "$AUTH_PASSWORD" ]] && AUTH_PASSWORD=$(openssl rand -hex 16)
@@ -126,26 +126,27 @@ EOF
         [[ -z "$TUIC_UUID" ]] && TUIC_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
         [[ -z "$TUIC_PASSWORD" ]] && TUIC_PASSWORD=$(openssl rand -hex 16)
 
-        # 根据 IP_VERSION 自动生成 server 字段
-        local server_ip=""
-        case "${IP_VERSION:-}" in
-            4) server_ip="0.0.0.0:$SERVICE_PORT" ;;
-            6) server_ip="[::]:$SERVICE_PORT" ;;
-            *) server_ip="0.0.0.0:$SERVICE_PORT" ;; # dual-stack 默认 0.0.0.0
-        esac
+        # 根据 IP_VERSION 设置监听地址和 dual_stack
+        if [[ "$IP_VERSION" == "4" ]]; then
+            SERVER_BIND="0.0.0.0:$SERVICE_PORT"
+            DUAL_STACK=false
+        elif [[ "$IP_VERSION" == "6" ]]; then
+            SERVER_BIND="[::]:$SERVICE_PORT"
+            DUAL_STACK=false
+        else
+            SERVER_BIND="0.0.0.0:$SERVICE_PORT"
+            DUAL_STACK=true
+        fi
 
         cat > "$SERVER_TOML" <<EOF
-server = "$server_ip"
-dual_stack = ${IP_VERSION:-""}
+server = "$SERVER_BIND"
+dual_stack = $DUAL_STACK
 [users]
 $TUIC_UUID = "$TUIC_PASSWORD"
 [tls]
 certificate = "$CERT_PEM"
 private_key = "$KEY_PEM"
 alpn = ["h3"]
-insecure = 1
-[tcp]
-congestion = "bbr"
 EOF
     fi
 }
