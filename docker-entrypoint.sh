@@ -147,7 +147,6 @@ $TUIC_UUID = "$TUIC_PASSWORD"
 certificate = "$CERT_PEM"
 private_key = "$KEY_PEM"
 alpn = ["h3"]
-insecure = true
 EOF
     fi
 }
