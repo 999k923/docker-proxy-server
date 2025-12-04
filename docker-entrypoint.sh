@@ -146,10 +146,16 @@ generate_link() {
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         echo "hysteria2://$AUTH_PASSWORD@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3&insecure=1#Hy2-JSON" > "$LINK_FILE"
     else
-        echo "tuic://$TUIC_UUID:$TUIC_PASSWORD@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3#TUIC-HIGH-PERF" > "$LINK_FILE"
+        # TUIC UUID 和密码可能包含空格或特殊字符，使用 tr 去掉空格
+        local clean_uuid
+        local clean_pass
+        clean_uuid=$(echo "$TUIC_UUID" | tr -d ' ')
+        clean_pass=$(echo "$TUIC_PASSWORD" | tr -d ' ')
+        echo "tuic://$clean_uuid:$clean_pass@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3#TUIC-HIGH-PERF" > "$LINK_FILE"
     fi
     echo "📱 链接生成: $LINK_FILE"
 }
+
 
 # ===================== 守护进程 =====================
 run_daemon() {
