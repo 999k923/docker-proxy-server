@@ -3,7 +3,7 @@ set -euo pipefail
 IFS=$'\n\t'
 
 # ===================== 工作目录 =====================
-WORK_DIR="proxy_files"
+WORK_DIR="/proxy_files"
 mkdir -p "$WORK_DIR"
 echo "📁 工作目录: $WORK_DIR"
 
@@ -60,8 +60,8 @@ elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
 elif [[ "$SELECTED_SERVICE" == "vmess-argo" ]]; then
     SINGBOX_CONFIG="$WORK_DIR/sing-box.json"
     ARGO_CONFIG="$WORK_DIR/argo.yml"
-    SINGBOX_BIN="/usr/local/bin/sing-box"
-    CLOUDFLARED_BIN="/usr/local/bin/cloudflared"
+    SINGBOX_BIN="$WORK_DIR/sing-box"
+    CLOUDFLARED_BIN="$WORK_DIR/cloudflared"
     LOG_FILE="$WORK_DIR/vmess_argo.log"
 fi
 
@@ -110,6 +110,9 @@ check_binary() {
         # 下载 cloudflared
         if [[ ! -f "$CLOUDFLARED_BIN" ]]; then
             echo "📥 下载 cloudflared..."
+            CPU_ARCH=$(uname -m)
+            [[ "$CPU_ARCH" == "x86_64" ]] && CPU_ARCH="amd64"
+            [[ "$CPU_ARCH" == "aarch64" ]] && CPU_ARCH="arm64"
             CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CPU_ARCH}"
             curl -L -f -o "$CLOUDFLARED_BIN" "$CLOUDFLARED_URL"
             chmod +x "$CLOUDFLARED_BIN"
@@ -217,7 +220,7 @@ run_daemon() {
         echo "🚀 启动 sing-box (VMess)..."
         nohup "$SINGBOX_BIN" run -c "$SINGBOX_CONFIG" >> "$LOG_FILE" 2>&1 &
         echo "🚀 启动 cloudflared..."
-        if [[ -n "$ARGO_TOKEN" ]]; then
+        if [[ -n "$ARGO_TOKEN" && -n "$ARGO_DOMAIN" ]]; then
             nohup "$CLOUDFLARED_BIN" tunnel --config "$ARGO_CONFIG" run --token "$ARGO_TOKEN" >> "$WORK_DIR/argo.log" 2>&1 &
         else
             nohup "$CLOUDFLARED_BIN" tunnel --url "http://127.0.0.1:${ARGO_PORT}" >> "$WORK_DIR/argo.log" 2>&1 &
