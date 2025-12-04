@@ -9,8 +9,8 @@ echo "📁 工作目录: $WORK_DIR"
 
 # ===================== 环境变量 =====================
 SERVICE_TYPE="${SERVICE_TYPE:-1}"  # 1: hy2, 2: tuic
-IP_VERSION="${IP_VERSION:-}"       # 4: IPv4, 6: IPv6, 空: dual-stack
-
+SERVICE_PORT="${SERVICE_PORT:-28888}"
+IP_VERSION="${IP_VERSION:-}"  # 4, 6, 或空
 MASQ_DOMAINS=(
     "www.microsoft.com" "www.cloudflare.com" "www.bing.com"
     "www.apple.com" "www.amazon.com" "www.wikipedia.org"
@@ -35,7 +35,6 @@ echo "✅ 选择服务: $SELECTED_SERVICE"
 echo "🎯 随机选择SNI伪装域名: $MASQ_DOMAIN"
 
 # ===================== 服务变量 =====================
-SERVICE_PORT="${SERVICE_PORT:-28888}"
 if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
     HY2_VERSION="app%2Fv2.6.3"
     SERVER_CONFIG="$WORK_DIR/server.json"
@@ -101,18 +100,6 @@ check_binary() {
 
 # ===================== 配置生成 =====================
 generate_config() {
-    local listen_addr
-    if [[ -z "$IP_VERSION" ]]; then
-        listen_addr="0.0.0.0"  # dual-stack, TUIC/HY2 会自动选择
-    elif [[ "$IP_VERSION" == "4" ]]; then
-        listen_addr="0.0.0.0"
-    elif [[ "$IP_VERSION" == "6" ]]; then
-        listen_addr="[::]"  # IPv6-only
-    else
-        echo "❌ IP_VERSION 只能是 4、6 或空"
-        exit 1
-    fi
-
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         [[ -z "$AUTH_PASSWORD" ]] && AUTH_PASSWORD=$(openssl rand -hex 16)
         cat > "$SERVER_CONFIG" <<EOF
@@ -138,11 +125,22 @@ EOF
     else
         [[ -z "$TUIC_UUID" ]] && TUIC_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
         [[ -z "$TUIC_PASSWORD" ]] && TUIC_PASSWORD=$(openssl rand -hex 16)
-        local dual_stack_flag="true"
-        [[ "$IP_VERSION" == "4" || "$IP_VERSION" == "6" ]] && dual_stack_flag="false"
+
+        # 根据 IP_VERSION 设置监听地址和 dual_stack
+        if [[ "$IP_VERSION" == "4" ]]; then
+            SERVER_BIND="0.0.0.0:$SERVICE_PORT"
+            DUAL_STACK=false
+        elif [[ "$IP_VERSION" == "6" ]]; then
+            SERVER_BIND="[::]:$SERVICE_PORT"
+            DUAL_STACK=false
+        else
+            SERVER_BIND="0.0.0.0:$SERVICE_PORT"
+            DUAL_STACK=true
+        fi
+
         cat > "$SERVER_TOML" <<EOF
-server = "$listen_addr:$SERVICE_PORT"
-dual_stack = $dual_stack_flag
+server = "$SERVER_BIND"
+dual_stack = $DUAL_STACK
 [users]
 $TUIC_UUID = "$TUIC_PASSWORD"
 [tls]
@@ -156,15 +154,16 @@ EOF
 # ===================== 链接生成 =====================
 generate_link() {
     local ip="$1"
-    if [[ "$IP_VERSION" == "6" || "$ip" =~ ":" ]]; then
+    if [[ "$ip" =~ ":" ]]; then
         ip="[$ip]"
     fi
 
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         echo "hysteria2://$AUTH_PASSWORD@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3&insecure=1#Hy2-JSON" > "$LINK_FILE"
     else
-        local clean_uuid=$(echo "$TUIC_UUID" | tr -d ' ')
-        local clean_pass=$(echo "$TUIC_PASSWORD" | tr -d ' ')
+        local clean_uuid clean_pass
+        clean_uuid=$(echo "$TUIC_UUID" | tr -d ' ')
+        clean_pass=$(echo "$TUIC_PASSWORD" | tr -d ' ')
         echo "tuic://$clean_uuid:$clean_pass@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3#TUIC-HIGH-PERF" > "$LINK_FILE"
     fi
     echo "📱 链接生成: $LINK_FILE"
@@ -175,26 +174,21 @@ run_daemon() {
     local cmd
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         cmd=("$HY2_BIN" "server" "-c" "$SERVER_CONFIG")
-        while true; do
-            echo "🚀 启动 $SELECTED_SERVICE 服务..."
-            "${cmd[@]}" >> "$LOG_FILE" 2>&1
-            echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
-            sleep 5
-        done
     else
         cmd=("$TUIC_BIN" "-c" "$SERVER_TOML")
-        while true; do
-            echo "🚀 启动 $SELECTED_SERVICE 服务..."
-            "${cmd[@]}" >> "$LOG_FILE" 2>&1
-            echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
-            sleep 5
-        done
     fi
+
+    while true; do
+        echo "🚀 启动 $SELECTED_SERVICE 服务..."
+        "${cmd[@]}" >> "$LOG_FILE" 2>&1
+        echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
+        sleep 5
+    done
 }
 
 # ===================== 获取公网 IP =====================
 get_server_ip() {
-    curl -s https://api64.ipify.org || echo "YOUR_SERVER_IP"
+    curl -s https://api64.ipify.org || curl -s https://api.ipify.org || echo "YOUR_SERVER_IP"
 }
 
 # ===================== 主函数 =====================
