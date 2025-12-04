@@ -1,7 +1,8 @@
-### docker部署hy2或者TUIC 2选1
-
-docker run
+docker部署hy2或者TUIC 2选1
 ==
+
+## docker run
+
 ```bash
 docker run -d \
   --name proxy_server \
