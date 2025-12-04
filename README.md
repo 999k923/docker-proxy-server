@@ -1,21 +1,33 @@
-## docker部署docker-compose
+docker run
+==
+```bash
+docker run -d \
+  --name proxy_server \
+  --restart always \
+  --network host \
+  -e SERVICE_TYPE=1 \
+  -e SERVICE_PORT=30000 \
+  -v /opt/stacks/proxy_server/data:/proxy_files \
+  999k923/docker-proxy:latest
+```
+
+## docker-compose
 ```bash
 services:
   proxy:
     image: 999k923/docker-proxy:latest
     container_name: proxy_server
     restart: always
-    network_mode: host        # host 网络模式保证 UDP/IPv6 正常
+    network_mode: host
     environment:
-      SERVICE_TYPE: 1         # 1=hy2, 2=tuic
+      SERVICE_TYPE: 1
+      SERVICE_PORT: 30000
     volumes:
       - /opt/stacks/proxy_server/data:/proxy_files
 ```
 ## 如果你想用 Docker 卷而不是宿主机目录
 ```bash
-volumes:
-  proxy_data:
-    driver: local
+version: "3.9"
 
 services:
   proxy:
@@ -25,6 +37,7 @@ services:
     network_mode: host
     environment:
       SERVICE_TYPE: 1
+      SERVICE_PORT: 30000
     volumes:
       - proxy_data:/proxy_files
 
