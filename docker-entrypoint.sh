@@ -9,6 +9,8 @@ echo "📁 工作目录: $WORK_DIR"
 
 # ===================== 环境变量 =====================
 SERVICE_TYPE="${SERVICE_TYPE:-1}"  # 1: hy2, 2: tuic
+IP_VERSION="${IP_VERSION:-}"       # 4: IPv4, 6: IPv6, 空: dual-stack
+
 MASQ_DOMAINS=(
     "www.microsoft.com" "www.cloudflare.com" "www.bing.com"
     "www.apple.com" "www.amazon.com" "www.wikipedia.org"
@@ -51,18 +53,6 @@ elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
     TUIC_PASSWORD=""
     LOG_FILE="$WORK_DIR/tuic.log"
 fi
-
-# ===================== 检测 IPv4 支持 =====================
-check_ipv4_support() {
-    if ping -c1 -W1 1.1.1.1 >/dev/null 2>&1; then
-        echo "true"
-    else
-        echo "false"
-    fi
-}
-
-IPV4_SUPPORTED=$(check_ipv4_support)
-echo "🌐 IPv4 支持: $IPV4_SUPPORTED"
 
 # ===================== 加载现有配置 =====================
 load_existing_config() {
@@ -111,6 +101,18 @@ check_binary() {
 
 # ===================== 配置生成 =====================
 generate_config() {
+    local listen_addr
+    if [[ -z "$IP_VERSION" ]]; then
+        listen_addr="0.0.0.0"  # dual-stack, TUIC/HY2 会自动选择
+    elif [[ "$IP_VERSION" == "4" ]]; then
+        listen_addr="0.0.0.0"
+    elif [[ "$IP_VERSION" == "6" ]]; then
+        listen_addr="[::]"  # IPv6-only
+    else
+        echo "❌ IP_VERSION 只能是 4、6 或空"
+        exit 1
+    fi
+
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         [[ -z "$AUTH_PASSWORD" ]] && AUTH_PASSWORD=$(openssl rand -hex 16)
         cat > "$SERVER_CONFIG" <<EOF
@@ -136,9 +138,11 @@ EOF
     else
         [[ -z "$TUIC_UUID" ]] && TUIC_UUID=$(cat /proc/sys/kernel/random/uuid 2>/dev/null || uuidgen)
         [[ -z "$TUIC_PASSWORD" ]] && TUIC_PASSWORD=$(openssl rand -hex 16)
+        local dual_stack_flag="true"
+        [[ "$IP_VERSION" == "4" || "$IP_VERSION" == "6" ]] && dual_stack_flag="false"
         cat > "$SERVER_TOML" <<EOF
-server = "0.0.0.0:$SERVICE_PORT"
-dual_stack = $IPV4_SUPPORTED
+server = "$listen_addr:$SERVICE_PORT"
+dual_stack = $dual_stack_flag
 [users]
 $TUIC_UUID = "$TUIC_PASSWORD"
 [tls]
@@ -152,13 +156,15 @@ EOF
 # ===================== 链接生成 =====================
 generate_link() {
     local ip="$1"
-    if [[ "$ip" =~ ":" ]]; then ip="[$ip]"; fi
+    if [[ "$IP_VERSION" == "6" || "$ip" =~ ":" ]]; then
+        ip="[$ip]"
+    fi
+
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         echo "hysteria2://$AUTH_PASSWORD@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3&insecure=1#Hy2-JSON" > "$LINK_FILE"
     else
-        local clean_uuid clean_pass
-        clean_uuid=$(echo "$TUIC_UUID" | tr -d ' ')
-        clean_pass=$(echo "$TUIC_PASSWORD" | tr -d ' ')
+        local clean_uuid=$(echo "$TUIC_UUID" | tr -d ' ')
+        local clean_pass=$(echo "$TUIC_PASSWORD" | tr -d ' ')
         echo "tuic://$clean_uuid:$clean_pass@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3#TUIC-HIGH-PERF" > "$LINK_FILE"
     fi
     echo "📱 链接生成: $LINK_FILE"
@@ -169,24 +175,26 @@ run_daemon() {
     local cmd
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         cmd=("$HY2_BIN" "server" "-c" "$SERVER_CONFIG")
+        while true; do
+            echo "🚀 启动 $SELECTED_SERVICE 服务..."
+            "${cmd[@]}" >> "$LOG_FILE" 2>&1
+            echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
+            sleep 5
+        done
     else
         cmd=("$TUIC_BIN" "-c" "$SERVER_TOML")
+        while true; do
+            echo "🚀 启动 $SELECTED_SERVICE 服务..."
+            "${cmd[@]}" >> "$LOG_FILE" 2>&1
+            echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
+            sleep 5
+        done
     fi
-    while true; do
-        echo "🚀 启动 $SELECTED_SERVICE 服务..."
-        "${cmd[@]}" >> "$LOG_FILE" 2>&1
-        echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
-        sleep 5
-    done
 }
 
 # ===================== 获取公网 IP =====================
 get_server_ip() {
-    if [[ "$IPV4_SUPPORTED" == "true" ]]; then
-        curl -s https://api.ipify.org
-    else
-        curl -s https://api64.ipify.org
-    fi
+    curl -s https://api64.ipify.org || echo "YOUR_SERVER_IP"
 }
 
 # ===================== 主函数 =====================
