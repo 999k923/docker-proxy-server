@@ -8,9 +8,9 @@ docker run -d \
   --name proxy_server \
   --restart always \
   --network host \
-  -e SERVICE_TYPE=1 \          # 1=HY2, 2=TUIC
-  -e SERVICE_PORT=30000 \      # 自定义端口
-  -e IP_VERSION=6 \            # ""=留空双栈VPS, "4"=IPv4 only, "6"=IPv6 only
+  -e SERVICE_TYPE=2 \
+  -e SERVICE_PORT=30000 \
+  -e IP_VERSION=6 \
   -v /opt/stacks/proxy_server/data:/proxy_files \
   999k923/docker-proxy:latest
 ```
