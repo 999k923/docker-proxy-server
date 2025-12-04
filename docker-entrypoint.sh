@@ -205,6 +205,25 @@ main() {
     echo "🎉 $SELECTED_SERVICE 服务启动完成: $server_ip:$SERVICE_PORT"
     echo "🎯 SNI/伪装域名: $MASQ_DOMAIN"
     echo "📄 日志文件: $LOG_FILE"
+        # ===================== 新增：启动时打印节点信息 =====================
+    echo "--------------------------------------------------"
+    echo "📡 节点信息："
+    echo "--------------------------------------------------"
+
+    if [[ "$SELECTED_SERVICE" == "hy2" && -f "$WORK_DIR/hy2_link.txt" ]]; then
+        echo "[HY2]"
+        cat "$WORK_DIR/hy2_link.txt"
+    fi
+
+    if [[ "$SELECTED_SERVICE" == "tuic" && -f "$WORK_DIR/tuic_link.txt" ]]; then
+        echo "[TUIC]"
+        cat "$WORK_DIR/tuic_link.txt"
+    fi
+
+    echo "--------------------------------------------------"
+    echo "📌 若需再次查看： docker logs -f <container-name>"
+    echo "--------------------------------------------------"
+    # ==================================================================
 
     run_daemon
 }
