@@ -59,12 +59,18 @@ load_existing_config() {
         AUTH_PASSWORD=$(grep '"password":' "$SERVER_CONFIG" | sed -E 's/.*"password":\s*"([^"]+)".*/\1/')
         echo "📂 已加载 HY2 配置"
         return 0
-    elif [[ "$SELECTED_SERVICE" == "tuic" && -f "$SERVER_TOML" ]]; then
-        TUIC_UUID=$(grep '^\[users\]' -A1 "$SERVER_TOML" | tail -n1 | awk -F'"' '{print $1}')
-        TUIC_PASSWORD=$(grep '^\[users\]' -A1 "$SERVER_TOML" | tail -n1 | awk -F'"' '{print $2}')
-        echo "📂 已加载 TUIC 配置"
-        return 0
-    fi
+   elif [[ "$SELECTED_SERVICE" == "tuic" && -f "$SERVER_TOML" ]]; then
+    local user_line
+    user_line=$(grep -A1 '^\[users\]' "$SERVER_TOML" | tail -n1)
+
+    # UUID 在 "=" 左边
+    TUIC_UUID=$(echo "$user_line" | awk -F'=' '{print $1}' | tr -d ' ')
+    # 密码在引号内
+    TUIC_PASSWORD=$(echo "$user_line" | awk -F'"' '{print $2}')
+
+    echo "📂 已加载 TUIC 配置"
+    return 0
+fi
     return 1
 }
 
