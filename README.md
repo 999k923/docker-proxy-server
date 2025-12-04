@@ -8,7 +8,7 @@ docker run -d \
   --name proxy_server \
   --restart always \
   --network host \
-  -e SERVICE_TYPE=2 \
+  -e SERVICE_TYPE=1 \
   -e SERVICE_PORT=30000 \
   -e IP_VERSION=6 \
   -v /opt/stacks/proxy_server/data:/proxy_files \
