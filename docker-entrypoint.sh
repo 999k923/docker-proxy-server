@@ -33,7 +33,6 @@ echo "✅ 选择服务: $SELECTED_SERVICE"
 echo "🎯 随机选择SNI伪装域名: $MASQ_DOMAIN"
 
 # ===================== 服务变量 =====================
-# 使用环境变量自定义端口，如果没设置就默认 28888
 SERVICE_PORT="${SERVICE_PORT:-28888}"
 if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
     HY2_VERSION="app%2Fv2.6.3"
@@ -53,24 +52,32 @@ elif [[ "$SELECTED_SERVICE" == "tuic" ]]; then
     LOG_FILE="$WORK_DIR/tuic.log"
 fi
 
+# ===================== 检测 IPv4 支持 =====================
+check_ipv4_support() {
+    if ping -c1 -W1 1.1.1.1 >/dev/null 2>&1; then
+        echo "true"
+    else
+        echo "false"
+    fi
+}
+
+IPV4_SUPPORTED=$(check_ipv4_support)
+echo "🌐 IPv4 支持: $IPV4_SUPPORTED"
+
 # ===================== 加载现有配置 =====================
 load_existing_config() {
     if [[ "$SELECTED_SERVICE" == "hy2" && -f "$SERVER_CONFIG" ]]; then
         AUTH_PASSWORD=$(grep '"password":' "$SERVER_CONFIG" | sed -E 's/.*"password":\s*"([^"]+)".*/\1/')
         echo "📂 已加载 HY2 配置"
         return 0
-   elif [[ "$SELECTED_SERVICE" == "tuic" && -f "$SERVER_TOML" ]]; then
-    local user_line
-    user_line=$(grep -A1 '^\[users\]' "$SERVER_TOML" | tail -n1)
-
-    # UUID 在 "=" 左边
-    TUIC_UUID=$(echo "$user_line" | awk -F'=' '{print $1}' | tr -d ' ')
-    # 密码在引号内
-    TUIC_PASSWORD=$(echo "$user_line" | awk -F'"' '{print $2}')
-
-    echo "📂 已加载 TUIC 配置"
-    return 0
-fi
+    elif [[ "$SELECTED_SERVICE" == "tuic" && -f "$SERVER_TOML" ]]; then
+        local user_line
+        user_line=$(grep -A1 '^\[users\]' "$SERVER_TOML" | tail -n1)
+        TUIC_UUID=$(echo "$user_line" | awk -F'=' '{print $1}' | tr -d ' ')
+        TUIC_PASSWORD=$(echo "$user_line" | awk -F'"' '{print $2}')
+        echo "📂 已加载 TUIC 配置"
+        return 0
+    fi
     return 1
 }
 
@@ -131,6 +138,7 @@ EOF
         [[ -z "$TUIC_PASSWORD" ]] && TUIC_PASSWORD=$(openssl rand -hex 16)
         cat > "$SERVER_TOML" <<EOF
 server = "0.0.0.0:$SERVICE_PORT"
+dual_stack = $IPV4_SUPPORTED
 [users]
 $TUIC_UUID = "$TUIC_PASSWORD"
 [tls]
@@ -144,17 +152,11 @@ EOF
 # ===================== 链接生成 =====================
 generate_link() {
     local ip="$1"
-    # IPv6 地址加方括号
-    if [[ "$ip" =~ ":" ]]; then
-        ip="[$ip]"
-    fi
-
+    if [[ "$ip" =~ ":" ]]; then ip="[$ip]"; fi
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         echo "hysteria2://$AUTH_PASSWORD@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3&insecure=1#Hy2-JSON" > "$LINK_FILE"
     else
-        # TUIC UUID 和密码可能包含空格或特殊字符，使用 tr 去掉空格
-        local clean_uuid
-        local clean_pass
+        local clean_uuid clean_pass
         clean_uuid=$(echo "$TUIC_UUID" | tr -d ' ')
         clean_pass=$(echo "$TUIC_PASSWORD" | tr -d ' ')
         echo "tuic://$clean_uuid:$clean_pass@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3#TUIC-HIGH-PERF" > "$LINK_FILE"
@@ -162,34 +164,29 @@ generate_link() {
     echo "📱 链接生成: $LINK_FILE"
 }
 
-
 # ===================== 守护进程 =====================
 run_daemon() {
     local cmd
     if [[ "$SELECTED_SERVICE" == "hy2" ]]; then
         cmd=("$HY2_BIN" "server" "-c" "$SERVER_CONFIG")
-        # 使用 stdout/stderr 重定向日志
-        while true; do
-            echo "🚀 启动 $SELECTED_SERVICE 服务..."
-            "${cmd[@]}" >> "$LOG_FILE" 2>&1
-            echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
-            sleep 5
-        done
     else
         cmd=("$TUIC_BIN" "-c" "$SERVER_TOML")
-        while true; do
-            echo "🚀 启动 $SELECTED_SERVICE 服务..."
-            "${cmd[@]}" >> "$LOG_FILE" 2>&1
-            echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
-            sleep 5
-        done
     fi
+    while true; do
+        echo "🚀 启动 $SELECTED_SERVICE 服务..."
+        "${cmd[@]}" >> "$LOG_FILE" 2>&1
+        echo "⚠️ $SELECTED_SERVICE 服务已退出，5秒后重启..." >> "$LOG_FILE" 2>&1
+        sleep 5
+    done
 }
-
 
 # ===================== 获取公网 IP =====================
 get_server_ip() {
-    curl -s https://api64.ipify.org || echo "YOUR_SERVER_IP"
+    if [[ "$IPV4_SUPPORTED" == "true" ]]; then
+        curl -s https://api.ipify.org
+    else
+        curl -s https://api64.ipify.org
+    fi
 }
 
 # ===================== 主函数 =====================
@@ -207,7 +204,7 @@ main() {
     echo "🎯 SNI/伪装域名: $MASQ_DOMAIN"
     echo "📄 日志文件: $LOG_FILE"
 
-    run_daemon  # 前台运行，保持容器不退出
+    run_daemon
 }
 
 main "$@"
