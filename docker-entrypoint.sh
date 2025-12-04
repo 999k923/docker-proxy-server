@@ -165,7 +165,7 @@ generate_link() {
         local clean_uuid clean_pass
         clean_uuid=$(echo "$TUIC_UUID" | tr -d ' ')
         clean_pass=$(echo "$TUIC_PASSWORD" | tr -d ' ')
-        echo "tuic://$clean_uuid:$clean_pass@$ip:$SERVICE_PORT?sni=$MASQ_DOMAIN&alpn=h3#TUIC-HIGH-PERF" > "$LINK_FILE"
+        echo "tuic://$clean_uuid:$clean_pass@$ip:$SERVICE_PORT?congestion_control=bbr&udp_relay_mode=native&alpn=h3&sni=$MASQ_DOMAIN&allow_insecure=1#TUIC-HIGH-PERF" > "$LINK_FILE"
     fi
     echo "📱 链接生成: $LINK_FILE"
 }
