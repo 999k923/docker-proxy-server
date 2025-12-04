@@ -217,16 +217,16 @@ run_daemon() {
             sleep 5
         done
     elif [[ "$SELECTED_SERVICE" == "vmess-argo" ]]; then
-        echo "🚀 启动 sing-box (VMess)..."
-        nohup "$SINGBOX_BIN" run -c "$SINGBOX_CONFIG" >> "$LOG_FILE" 2>&1 &
+    echo "🚀 启动 sing-box (VMess)..."
+    nohup "$SINGBOX_BIN" run -c "$SINGBOX_CONFIG" >> "$LOG_FILE" 2>&1 &
 
-        echo "🚀 启动 cloudflared..."
-        if [[ -n "$ARGO_TOKEN" && -n "$ARGO_DOMAIN" ]]; then
-            # 使用 Token + 自定义域名
-            TUNNEL_NAME="vmess-argo-$(cat /proc/sys/kernel/random/uuid | tr -d '-')"
-            # 创建 tunnel 配置文件
-            CLOUDFLARED_CONFIG="$WORK_DIR/argo-tunnel.yml"
-            cat > "$CLOUDFLARED_CONFIG" <<EOF
+    echo "🚀 启动 cloudflared..."
+    if [[ -n "$ARGO_TOKEN" && -n "$ARGO_DOMAIN" ]]; then
+        TUNNEL_NAME="vmess-argo-$(cat /proc/sys/kernel/random/uuid | tr -d '-')"
+        CLOUDFLARED_CONFIG="$WORK_DIR/argo-tunnel.yml"
+
+        # 生成 tunnel 配置
+        cat > "$CLOUDFLARED_CONFIG" <<EOF
 tunnel: $TUNNEL_NAME
 credentials-file: $WORK_DIR/$TUNNEL_NAME.json
 log-level: info
@@ -235,15 +235,17 @@ ingress:
     service: http://127.0.0.1:${ARGO_PORT}
   - service: http_status:404
 EOF
-            # 使用 Token 创建隧道
-            "$CLOUDFLARED_BIN" tunnel --config "$CLOUDFLARED_CONFIG" create "$TUNNEL_NAME" --token "$ARGO_TOKEN" || true
-            # 运行隧道
-            nohup "$CLOUDFLARED_BIN" tunnel --config "$CLOUDFLARED_CONFIG" run "$TUNNEL_NAME" >> "$WORK_DIR/argo.log" 2>&1 &
-        else
-            # 临时隧道
-            nohup "$CLOUDFLARED_BIN" tunnel --url "http://127.0.0.1:${ARGO_PORT}" >> "$WORK_DIR/argo.log" 2>&1 &
-        fi
+
+        # 使用 Token 创建隧道（失败不退出）
+        "$CLOUDFLARED_BIN" tunnel --config "$CLOUDFLARED_CONFIG" create "$TUNNEL_NAME" --token "$ARGO_TOKEN" || true
+
+        # 使用 WSS/TCP 运行隧道，避免 QUIC/UDP 问题
+        nohup "$CLOUDFLARED_BIN" tunnel --config "$CLOUDFLARED_CONFIG" run --protocol wss "$TUNNEL_NAME" >> "$WORK_DIR/argo.log" 2>&1 &
+    else
+        # 临时隧道，走 WSS/TCP
+        nohup "$CLOUDFLARED_BIN" tunnel --url "http://127.0.0.1:${ARGO_PORT}" --protocol wss >> "$WORK_DIR/argo.log" 2>&1 &
     fi
+fi
 }
 
 
