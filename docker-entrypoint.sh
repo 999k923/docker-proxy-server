@@ -223,15 +223,22 @@ generate_vless_link() {
 
 main() {
 
+    # ========== VLESS / ARGO 独立逻辑 ==========
     if [[ "$SELECTED_SERVICE" == "vless" ]]; then
+        echo "📁 工作目录: $WORK_DIR"
+        echo "🎯 伪装域名: $MASQ_DOMAIN"
         echo "⚙️ 初始化 VLESS + Argo 服务..."
+
         download_vless_bins
         generate_vless_config
         run_vless_daemon
         exit 0
     fi
 
-    # HY2 / TUIC 保持原逻辑
+    # ========== HY2 / TUIC 原逻辑 ==========
+    echo "📁 工作目录: $WORK_DIR"
+    echo "🎯 伪装域名: $MASQ_DOMAIN"
+
     load_existing_config || echo "⚙️ 初始化新配置..."
     generate_certificate
     check_binary
