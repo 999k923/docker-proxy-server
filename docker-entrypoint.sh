@@ -160,7 +160,7 @@ EOF
 }
 
 # -------------------- 修改 run_vless_daemon 只启动一次 --------------------
-run_vless_daemon() {
+run_vless_once() {
     local VLESS_WS_PORT=8080
 
     while true; do
