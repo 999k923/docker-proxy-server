@@ -45,7 +45,7 @@ if [[ "$SELECTED_SERVICE" == "vless" ]]; then
     LOG_FILE="$WORK_DIR/vless.log"
 fi
 
-# ===================== 载入 HY2/TUIC 控制区（保持原样） =====================
+# ===================== 载入 HY2/TUIC 控制区 =====================
 load_existing_config() {
     if [[ "$SELECTED_SERVICE" == "hy2" && -f "$WORK_DIR/server.json" ]]; then
         AUTH_PASSWORD=$(grep '"password":' "$WORK_DIR/server.json" | sed -E 's/.*"password":\s*"([^"]+)".*/\1/')
@@ -107,7 +107,7 @@ check_binary() {
 }
 
 # ==========================================================================================
-#                           🔥🔥🔥  VLESS / ARGO 功能开始  🔥🔥🔥
+# 🔥 VLESS / ARGO 功能
 # ==========================================================================================
 
 download_vless_bins() {
@@ -159,49 +159,45 @@ EOF
     echo "$WS_PATH" > "$WORK_DIR/vless_path.txt"
 }
 
-run_vless_daemon() {
+# -------------------- 修改 run_vless_daemon 只启动一次 --------------------
+run_vless_once() {
     local VLESS_WS_PORT=8080
+    rm -f "$WORK_DIR/cloudflared.log"
+    echo "🚀 启动 Argo 隧道..."
 
-    while true; do
-        rm -f "$WORK_DIR/cloudflared.log"
-        echo "🚀 启动 Argo 隧道..."
+    # 启动 cloudflared 并输出到控制台
+    "$CF_BIN" tunnel --url "http://localhost:$VLESS_WS_PORT" --no-autoupdate --protocol quic \
+        2>&1 | tee -a "$WORK_DIR/cloudflared.log" &
 
-        env GOGC=200 GOMEMLIMIT=32MiB GOMAXPROCS=1 \
-            "$CF_BIN" tunnel --url "http://localhost:$VLESS_WS_PORT" --no-autoupdate --protocol quic \
-            > "$WORK_DIR/cloudflared.log" 2>&1 &
+    CF_PID=$!
 
-        CF_PID=$!
-
-        echo "⏳ 等待隧道域名..."
-        local url=""
-        for i in {1..30}; do
-            url=$(grep -o -E "https://[a-zA-Z0-9-]+\.trycloudflare\.com" "$WORK_DIR/cloudflared.log" | head -n1)
-            if [[ -n "$url" ]]; then break; fi
-            sleep 1
-        done
-
-        if [[ -z "$url" ]]; then
-            echo "❌ 获取 Argo 域名失败，5 秒后重试..."
-            kill -9 "$CF_PID" 2>/dev/null || true
-            sleep 5
-            continue
-        fi
-
-        HOST=$(echo "$url" | sed 's#https://##')
-        echo "🌐 Argo 域名: $HOST"
-
-        echo "🚀 启动 sing-box..."
-        env GOGC=200 GOMEMLIMIT=32MiB GOMAXPROCS=1 \
-            "$SB_BIN" run -c "$VLESS_CONF" >> "$LOG_FILE" 2>&1 &
-
-        SB_PID=$!
-
-        generate_vless_link "$HOST"
-
-        wait -n "$CF_PID" "$SB_PID"
-        echo "⚠️ VLESS 服务退出，5 秒后重启..."
-        sleep 5
+    echo "⏳ 等待隧道域名..."
+    local url=""
+    for i in {1..30}; do
+        url=$(grep -o -E "https://[a-zA-Z0-9-]+\.trycloudflare\.com" "$WORK_DIR/cloudflared.log" | head -n1)
+        if [[ -n "$url" ]]; then break; fi
+        sleep 1
     done
+
+    if [[ -z "$url" ]]; then
+        echo "❌ 获取 Argo 域名失败，请检查 cloudflared 日志"
+        kill -9 "$CF_PID" 2>/dev/null || true
+        exit 1
+    fi
+
+    HOST=$(echo "$url" | sed 's#https://##')
+    echo "🌐 Argo 域名: $HOST"
+
+    echo "🚀 启动 sing-box..."
+    "$SB_BIN" run -c "$VLESS_CONF" 2>&1 | tee -a "$LOG_FILE" &
+
+    SB_PID=$!
+
+    generate_vless_link "$HOST"
+
+    # 等待任意一个进程退出
+    wait -n "$CF_PID" "$SB_PID"
+    echo "⚠️ VLESS 或 Argo 服务退出，请查看日志"
 }
 
 generate_vless_link() {
@@ -218,12 +214,10 @@ generate_vless_link() {
 }
 
 # ==========================================================================================
-#                                  主逻辑入口
+# 主逻辑入口
 # ==========================================================================================
 
 main() {
-
-    # ========== VLESS / ARGO 独立逻辑 ==========
     if [[ "$SELECTED_SERVICE" == "vless" ]]; then
         echo "📁 工作目录: $WORK_DIR"
         echo "🎯 伪装域名: $MASQ_DOMAIN"
@@ -231,11 +225,11 @@ main() {
 
         download_vless_bins
         generate_vless_config
-        run_vless_daemon
+        run_vless_once
         exit 0
     fi
 
-    # ========== HY2 / TUIC 原逻辑 ==========
+    # HY2 / TUIC 原逻辑
     echo "📁 工作目录: $WORK_DIR"
     echo "🎯 伪装域名: $MASQ_DOMAIN"
 
