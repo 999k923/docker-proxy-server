@@ -160,45 +160,54 @@ EOF
 }
 
 # -------------------- 修改 run_vless_daemon 只启动一次 --------------------
-run_vless_once() {
+run_vless_daemon() {
     local VLESS_WS_PORT=8080
-    rm -f "$WORK_DIR/cloudflared.log"
-    echo "🚀 启动 Argo 隧道..."
 
-    # 启动 cloudflared 并输出到控制台
-    "$CF_BIN" tunnel --url "http://localhost:$VLESS_WS_PORT" --no-autoupdate --protocol quic \
-        2>&1 | tee -a "$WORK_DIR/cloudflared.log" &
+    while true; do
+        rm -f "$WORK_DIR/cloudflared.log"
+        echo "🚀 启动 Argo 隧道..."
 
-    CF_PID=$!
+        env GOGC=200 GOMEMLIMIT=32MiB GOMAXPROCS=1 \
+            "$CF_BIN" tunnel --url "http://localhost:$VLESS_WS_PORT" --no-autoupdate --protocol quic \
+            > "$WORK_DIR/cloudflared.log" 2>&1 &
 
-    echo "⏳ 等待隧道域名..."
-    local url=""
-    for i in {1..30}; do
-        url=$(grep -o -E "https://[a-zA-Z0-9-]+\.trycloudflare\.com" "$WORK_DIR/cloudflared.log" | head -n1)
-        if [[ -n "$url" ]]; then break; fi
-        sleep 1
+        CF_PID=$!
+
+        echo "⏳ 等待隧道域名..."
+        local url=""
+        for i in {1..30}; do
+            url=$(grep -o -E "https://[a-zA-Z0-9-]+\.trycloudflare\.com" "$WORK_DIR/cloudflared.log" | head -n1)
+            if [[ -n "$url" ]]; then break; fi
+            sleep 1
+        done
+
+        if [[ -z "$url" ]]; then
+            echo "❌ 获取 Argo 域名失败，打印 cloudflared 日志："
+            cat "$WORK_DIR/cloudflared.log"
+            echo "⚠️ 5 秒后重试..."
+            kill -9 "$CF_PID" 2>/dev/null || true
+            sleep 5
+            continue
+        fi
+
+        HOST=$(echo "$url" | sed 's#https://##')
+        echo "🌐 Argo 域名: $HOST"
+
+        echo "🚀 启动 sing-box..."
+        env GOGC=200 GOMEMLIMIT=32MiB GOMAXPROCS=1 \
+            "$SB_BIN" run -c "$VLESS_CONF" >> "$LOG_FILE" 2>&1 &
+
+        SB_PID=$!
+
+        generate_vless_link "$HOST"
+
+        # 等待任意进程退出，如果退出则循环重启
+        wait -n "$CF_PID" "$SB_PID"
+        echo "⚠️ VLESS 服务退出，5 秒后重启..."
+        sleep 5
     done
-
-    if [[ -z "$url" ]]; then
-        echo "❌ 获取 Argo 域名失败，请检查 cloudflared 日志"
-        kill -9 "$CF_PID" 2>/dev/null || true
-        exit 1
-    fi
-
-    HOST=$(echo "$url" | sed 's#https://##')
-    echo "🌐 Argo 域名: $HOST"
-
-    echo "🚀 启动 sing-box..."
-    "$SB_BIN" run -c "$VLESS_CONF" 2>&1 | tee -a "$LOG_FILE" &
-
-    SB_PID=$!
-
-    generate_vless_link "$HOST"
-
-    # 等待任意一个进程退出
-    wait -n "$CF_PID" "$SB_PID"
-    echo "⚠️ VLESS 或 Argo 服务退出，请查看日志"
 }
+
 
 generate_vless_link() {
     local HOST="$1"
