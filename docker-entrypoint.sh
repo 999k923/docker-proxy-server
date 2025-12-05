@@ -167,10 +167,11 @@ run_vless_daemon() {
         rm -f "$WORK_DIR/cloudflared.log"
         echo "🚀 启动 Argo 隧道..."
 
-        # 启动 cloudflared，后台运行
+        # 启动 cloudflared，后台运行 (TCP 模式)
         env GOGC=200 GOMEMLIMIT=32MiB GOMAXPROCS=1 \
-            "$CF_BIN" tunnel --url "http://localhost:$VLESS_WS_PORT" --no-autoupdate --protocol quic \
-            > "$WORK_DIR/cloudflared.log" 2>&1 &
+           "$CF_BIN" tunnel --url "http://localhost:$VLESS_WS_PORT" --no-autoupdate --protocol h2mux \
+           > "$WORK_DIR/cloudflared.log" 2>&1 &
+
 
         CF_PID=$!
 
